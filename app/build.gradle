@@ -1,0 +1,69 @@
+apply plugin: 'com.android.application'
+
+android {
+    compileSdkVersion 20
+    buildToolsVersion "20.0.0"
+
+    defaultConfig {
+        applicationId "net.scintill.rilspy"
+        minSdkVersion 15
+        targetSdkVersion 20
+        versionCode 1
+        versionName "1.0"
+    }
+    buildTypes {
+        release {
+            runProguard false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+    sourceSets.main.jniLibs.srcDirs = ['build/native/bin']
+}
+
+dependencies {
+    compile fileTree(dir: 'libs', include: ['*.jar'])
+}
+
+// https://stackoverflow.com/questions/21999829/how-do-i-read-properties-defined-in-local-properties-in-build-gradle
+Properties properties = new Properties()
+properties.load(project.rootProject.file('local.properties').newDataInputStream())
+def ndkDir = properties.getProperty('ndk.dir')
+
+task nativeBuild << {
+    // https://stackoverflow.com/questions/16667903/android-studio-gradle-and-ndk
+
+    task("nativeHijackBuild", type: Exec) {
+        commandLine "$ndkDir/ndk-build", '--directory', "$projectDir/src/native/adbi/hijack/jni",
+                "APP_PLATFORM=android-14",
+                "NDK_OUT=$buildDir/native/obj",
+                "NDK_APP_DST_DIR=$buildDir/native/bin/\$(TARGET_ARCH_ABI)"
+        standardOutput = new OutputStream() { public void write(int b) throws IOException {} }
+    }.execute()
+
+    task("nativeInstrumentsBaseBuild", type: Exec) {
+        commandLine "$ndkDir/ndk-build", '--directory', "$projectDir/src/native/adbi/instruments/base/jni",
+                "APP_PLATFORM=android-14",
+                "NDK_OUT=$buildDir/native/obj",
+                "NDK_APP_DST_DIR=$buildDir/native/bin/\$(TARGET_ARCH_ABI)"
+        standardOutput = new OutputStream() { public void write(int b) throws IOException {} }
+    }.execute()
+
+    task("nativeLibrilspyBuild", type: Exec) {
+        commandLine "$ndkDir/ndk-build", '--directory', "$projectDir/src/native/librilspy/jni",
+                "APP_PLATFORM=android-14",
+                "NDK_OUT=$buildDir/native/obj",
+                "NDK_APP_DST_DIR=$buildDir/native/bin/\$(TARGET_ARCH_ABI)"
+        standardOutput = new OutputStream() { public void write(int b) throws IOException {} }
+    }.execute()
+
+    // name the hijack binary as a .so -- the packaging stuff will automatically take care of it.
+    task("nativeHijackMangleName", type: Copy) {
+        from file("$buildDir/native/bin/armeabi/hijack")
+        into file("$buildDir/native/bin/armeabi")
+        rename "hijack", "lib__hijack.bin__.so"
+    }.execute()
+}
+
+tasks.withType(JavaCompile) {
+    compileTask -> compileTask.dependsOn nativeBuild
+}
